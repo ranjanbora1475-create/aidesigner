@@ -400,14 +400,14 @@ document.querySelectorAll('.skills-list').forEach(s=>skobs.observe(s));
 // Cloudinary Config
 const CLOUD_NAME = 'dc0u8ks3l';
 const UPLOAD_PRESET = 'aidesigner_portfolio';
-const API_KEY = '991541637674396';
 
 const fileInput=document.getElementById('fileInput');
 const uploadZone=document.getElementById('uploadZone');
 const galleryGrid=document.getElementById('galleryGrid');
 
-// Load images from Cloudinary on page load
-loadFromCloudinary();
+// Load images from localStorage on page load
+let mediaItems = JSON.parse(localStorage.getItem('aidesigner_media_v2') || '[]');
+renderGallery();
 
 uploadZone.addEventListener('dragover',e=>{e.preventDefault();uploadZone.classList.add('dragover');});
 uploadZone.addEventListener('dragleave',()=>uploadZone.classList.remove('dragover'));
@@ -417,61 +417,53 @@ fileInput.addEventListener('change',e=>handleFiles(e.target.files));
 async function handleFiles(files){
   for(const file of Array.from(files)){
     const isVideo = file.type.startsWith('video/');
-    galleryGrid.innerHTML = '<div class="empty-gallery"><div class="empty-icon">⏳</div><p>Uploading... Please wait...</p></div>';
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('upload_preset', UPLOAD_PRESET);
-    formData.append('folder', 'aidesigner-portfolio');
-    const type = isVideo ? 'video' : 'image';
-    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/${type}/upload`, {method:'POST', body:formData});
-    const data = await res.json();
-    if(data.secure_url){
-      loadFromCloudinary();
+    galleryGrid.innerHTML='<div class="empty-gallery"><div class="empty-icon">⏳</div><p>Uploading to cloud... Please wait...</p></div>';
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('upload_preset', UPLOAD_PRESET);
+      const type = isVideo ? 'video' : 'image';
+      const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/${type}/upload`, {method:'POST',body:formData});
+      const data = await res.json();
+      if(data.secure_url){
+        mediaItems.push({src:data.secure_url, type:isVideo?'video':'image', public_id:data.public_id});
+        localStorage.setItem('aidesigner_media_v2', JSON.stringify(mediaItems));
+        renderGallery();
+      } else {
+        alert('Upload failed: ' + (data.error?.message || 'Unknown error'));
+        renderGallery();
+      }
+    } catch(err) {
+      alert('Upload error: ' + err.message);
+      renderGallery();
     }
   }
 }
 
-async function loadFromCloudinary(){
-  galleryGrid.innerHTML='<div class="empty-gallery"><div class="empty-icon">⏳</div><p>Loading your portfolio...</p></div>';
-  try {
-    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/resources/search?expression=folder%3Aaidesigner-portfolio&max_results=100`, {
-      headers: {'Authorization': 'Basic ' + btoa(API_KEY + ':n6folTlcwOL9xc0AbUSiVCTqJJE')}
-    });
-    const data = await res.json();
-    if(data.resources && data.resources.length > 0){
-      renderGallery(data.resources);
-    } else {
-      galleryGrid.innerHTML='<div class="empty-gallery"><div class="empty-icon">🖼️</div><p>Upload your thumbnails and videos above to display them here</p></div>';
-    }
-  } catch(e){
+function renderGallery(){
+  if(mediaItems.length===0){
     galleryGrid.innerHTML='<div class="empty-gallery"><div class="empty-icon">🖼️</div><p>Upload your thumbnails and videos above to display them here</p></div>';
+    return;
   }
-}
-
-function renderGallery(items){
   galleryGrid.innerHTML='';
-  items.forEach(item=>{
-    const isVideo = item.resource_type === 'video';
+  mediaItems.forEach((item,index)=>{
     const div=document.createElement('div');
     div.className='gallery-item';
-    if(isVideo){
-      div.innerHTML=`<video src="${item.secure_url}" muted loop></video><div class="play-overlay">▶</div><div class="gallery-overlay"><span class="gallery-type">VIDEO</span><button class="delete-btn" onclick="deleteItem('${item.public_id}','${item.resource_type}')">✕</button></div>`;
+    if(item.type==='video'){
+      div.innerHTML=`<video src="${item.src}" muted loop></video><div class="play-overlay">▶</div><div class="gallery-overlay"><span class="gallery-type">VIDEO</span><button class="delete-btn" onclick="deleteItem(${index})">✕</button></div>`;
     } else {
-      div.innerHTML=`<img src="${item.secure_url}" alt="Thumbnail"><div class="gallery-overlay"><span class="gallery-type">IMAGE</span><button class="delete-btn" onclick="deleteItem('${item.public_id}','${item.resource_type}')">✕</button></div>`;
+      div.innerHTML=`<img src="${item.src}" alt="Thumbnail"><div class="gallery-overlay"><span class="gallery-type">IMAGE</span><button class="delete-btn" onclick="deleteItem(${index})">✕</button></div>`;
     }
-    div.addEventListener('click',e=>{if(!e.target.classList.contains('delete-btn'))openLightbox({src:item.secure_url,type:isVideo?'video':'image'});});
+    div.addEventListener('click',e=>{if(!e.target.classList.contains('delete-btn'))openLightbox(item);});
     galleryGrid.appendChild(div);
   });
 }
 
-async function deleteItem(publicId, resourceType){
+function deleteItem(index){
   if(confirm('Delete this item?')){
-    await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/resources/${resourceType}/upload`, {
-      method:'DELETE',
-      headers:{'Authorization':'Basic '+btoa(API_KEY+':n6folTlcwOL9xc0AbUSiVCTqJJE'),'Content-Type':'application/json'},
-      body:JSON.stringify({public_ids:[publicId]})
-    });
-    loadFromCloudinary();
+    mediaItems.splice(index,1);
+    localStorage.setItem('aidesigner_media_v2', JSON.stringify(mediaItems));
+    renderGallery();
   }
 }
 
